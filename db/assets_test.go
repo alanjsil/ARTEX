@@ -14,7 +14,7 @@ func testSetup(t *testing.T) (*DB, *AssetStore, *CompanyStore) {
 	t.Helper()
 	d, err := Open(testDSN(t))
 	if err != nil {
-		t.Skipf("postgres unavailable (%v)", err)
+		SkipPGUnavailable(t, err)
 	}
 	return d, d.Assets(), d.Companies()
 }
@@ -879,6 +879,17 @@ func TestMarshalStringArray(t *testing.T) {
 	if got2 != "{}" {
 		t.Errorf("empty: %q", got2)
 	}
+
+	quoted := marshalStringArray([]string{`say "hi"`, `a\b`})
+	if quoted != `{"say \"hi\"","a\\b"}` {
+		t.Errorf("escape: %q", quoted)
+	}
+
+	// A backslash before a quote must not close the element and inject another.
+	injected := marshalStringArray([]string{`x\",evil,\"y`})
+	if strings.Contains(injected, `","evil`) {
+		t.Errorf("backslash-quote split the array: %q", injected)
+	}
 }
 
 // =====================================================================
@@ -897,6 +908,7 @@ func TestNormalizeURL(t *testing.T) {
 		{"https://user@example.com/", "https://example.com"},
 		{"https://u:p@example.com:8443/users/@alice?x=1", "https://example.com:8443/users/@alice?x=1"},
 		{"https://example.com/@me?r=http://a:b@x/", "https://example.com/@me?r=http://a:b@x/"},
+		{"http://user:secret@ex ample.com/a", "http://ex ample.com/a"},
 	}
 	for _, tc := range tests {
 		got := normalizeURL(tc.raw)
@@ -1132,6 +1144,7 @@ func TestAssetIPRejectsHostname(t *testing.T) {
 		t.Fatalf("empty ip rejected: %v", err)
 	}
 	deleteAsset(d, id)
+	_, _ = d.Exec(`DELETE FROM assets WHERE domain IN ('ip-guard.example.com','example.com')`)
 	id, err = av2.UpsertIP(UpsertIPReq{IP: "203.0.113.7"})
 	if err != nil {
 		t.Fatalf("valid ip rejected: %v", err)
@@ -1168,11 +1181,11 @@ func TestQueryDSLInScopeMembership(t *testing.T) {
 	}
 
 	stamp := time.Now().UnixNano()
-	root := fmt.Sprintf("sc%d.invalid", stamp)           // in-scope root domain (task)
-	srcRoot := fmt.Sprintf("src%d.invalid", stamp)       // in-scope via source task
-	out := fmt.Sprintf("out%d.invalid", stamp)           // out of every scope
-	marker := fmt.Sprintf("mk%d", stamp)                 // bare-text token present in all rows
-	foreignTask := stamp + 777                           // asset produced by an unrelated task
+	root := fmt.Sprintf("sc%d.invalid", stamp)     // in-scope root domain (task)
+	srcRoot := fmt.Sprintf("src%d.invalid", stamp) // in-scope via source task
+	out := fmt.Sprintf("out%d.invalid", stamp)     // out of every scope
+	marker := fmt.Sprintf("mk%d", stamp)           // bare-text token present in all rows
+	foreignTask := stamp + 777                     // asset produced by an unrelated task
 
 	// Scope: task owns root; source task owns srcRoot; task owns an IP /24.
 	for _, sc := range []struct {
@@ -1200,7 +1213,7 @@ func TestQueryDSLInScopeMembership(t *testing.T) {
 		{"subdomain", "api." + root, root, "", "", "", marker},                        // under task root
 		{"service", "www." + root, root, "https://www." + root + "/", "", "", marker}, // service under task root
 		{"endpoint", "www." + root, root, "https://www." + root + "/a?" + marker + "=1", "GET", "", ""},
-		{"subdomain", "dev." + srcRoot, srcRoot, "", "", "", marker}, // under source-task root
+		{"subdomain", "dev." + srcRoot, srcRoot, "", "", "", marker},                                      // under source-task root
 		{"endpoint", "198.51.100.9", "198.51.100.9", "http://198.51.100.9:8080/" + marker, "GET", "", ""}, // IP-literal host, ip col empty
 		{"subdomain", "x." + out, out, "", "", "", marker},                                                // out of scope
 	}

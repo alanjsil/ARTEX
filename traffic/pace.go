@@ -2,7 +2,7 @@ package traffic
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -40,10 +40,14 @@ func (s *sink) Requestheaders(f *mproxy.Flow) {
 	}
 }
 
-// ClientDisconnected forgets a closed connection's mark.
+// ClientDisconnected forgets a closed connection's mark, and asks for a sweep
+// of the request snapshots its flows may have left (rewrite_flow.go).
 func (s *sink) ClientDisconnected(c *mproxy.ClientConn) {
 	if c != nil {
 		s.paced.Delete(c.Id)
+	}
+	if s.t != nil {
+		s.t.snaps.requestSweep()
 	}
 }
 
@@ -58,6 +62,6 @@ func pace(f *mproxy.Flow) {
 	defer cancel()
 	host := egress.HostKey(f.Request.URL)
 	if err := egress.Wait(ctx, host); err != nil {
-		log.Printf("[traffic] pacing a Bash request to %s stopped waiting (%v); sending it unpaced", host, err)
+		slog.Warn("[traffic] pacing request stopped waiting, sending unpaced", "host", host, "err", err)
 	}
 }
