@@ -21,3 +21,4 @@
   "_comment_skill_dir": "Skill root directory (one skill per subdirectory, each with a SKILL.md). Precedence: environment variable ARTEX_SKILL_DIR > this field > default (skills/ next to the executable). Leave empty or delete this field to use the default. Relative paths resolve against the current working directory.",
   "skill_dir": "/opt/artex/skills"
 }
+
